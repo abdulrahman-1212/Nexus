@@ -1,27 +1,72 @@
 use crate::{config::ModelConfig, models::{InferenceRequest, InferenceResponse}};
-use tokio::time::{self, Duration};
+use reqwest::Client;
 
 // Executes model inference
-pub struct ModelRunner;
+#[derive(Clone)]
+pub struct ModelRunner {
+    client: Client,
+}
 
 impl ModelRunner {
     pub fn new() -> Self {
-        Self
+        Self {
+            client: Client::new(),
+        }
     }
 
     pub async fn run_inference(&self, request: &InferenceRequest, model: &ModelConfig) -> InferenceResponse {
-        // Simulate inference
-        time::sleep(Duration::from_millis(100)).await;
         let context_info = if !request.context.metadata.is_empty() {
-            format!(" with context metadata: {:?}", request.context.metadata)
+            format!("Metadata: {:?}", request.context.metadata)
         } else {
             String::new()
         };
-        InferenceResponse {
-            id: request.id.clone(),
-            output: format!("Processed by {}: {}{} (session: {})", model.id, request.input, context_info, request.context.session_id),
-            latency_ms: 100,
-            context: request.context.clone(),
+        let prompt = format!(
+            "Session: {}, {}, Input: {}",
+            request.context.session_id, context_info, request.input
+        );
+
+        let payload = serde_json::json!({
+            "model": &model.id,
+            "prompt": prompt,
+            "stream": false,
+            "options": {
+                "temperature": 0.7,
+                "max_tokens": 100
+            }
+        });
+
+        match self.client
+            .post(&model.endpoint)
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => match resp.json::<serde_json::Value>().await {
+                Ok(json) => {
+                    let output = json["response"]
+                        .as_str()
+                        .unwrap_or("Error: No response field")
+                        .to_string();
+                    InferenceResponse {
+                        id: request.id.clone(),
+                        output,
+                        latency_ms: 100, // Placeholder; actual latency measured in orchestrator
+                        context: request.context.clone(),
+                    }
+                }
+                Err(e) => InferenceResponse {
+                    id: request.id.clone(),
+                    output: format!("Error parsing response: {}", e),
+                    latency_ms: 100,
+                    context: request.context.clone(),
+                },
+            },
+            Err(e) => InferenceResponse {
+                id: request.id.clone(),
+                output: format!("Error calling Ollama: {}", e),
+                latency_ms: 100,
+                context: request.context.clone(),
+            },
         }
     }
 }

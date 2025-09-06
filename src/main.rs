@@ -20,16 +20,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize model configurations
     let models = vec![
         ModelConfig {
-            id: "model1".to_string(),
-            endpoint: "http://localhost:8000".to_string(),
+            id: "llama3.1".to_string(),
+            endpoint: "http://localhost:11434/api/generate".to_string(),
             max_requests_per_second: 10,
-            weight: 0.7,
-        },
-        ModelConfig {
-            id: "model2".to_string(),
-            endpoint: "http://localhost:8001".to_string(),
-            max_requests_per_second: 10,
-            weight: 0.3,
+            weight: 1.0,
         },
     ];
 

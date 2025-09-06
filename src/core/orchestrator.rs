@@ -1,7 +1,8 @@
 use crate::{config::ModelConfig, core::{batcher::Batcher, cache::Cache, load_balancer::LoadBalancer}, models::{InferenceRequest, InferenceResponse}, observability::metrics::Metrics};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use tokio::time::{self, Duration};
+use reqwest::Client;
+use tokio::time::Duration;
 
 // Core orchestrator for managing inference requests
 #[derive(Clone)]
@@ -10,6 +11,7 @@ pub struct NexusOrchestrator {
     batcher: Batcher,
     cache: Cache,
     metrics: Arc<Mutex<Metrics>>,
+    client: Client,
 }
 
 impl NexusOrchestrator {
@@ -19,6 +21,7 @@ impl NexusOrchestrator {
             batcher: Batcher::new(),
             cache: Cache::new(),
             metrics: Metrics::new(),
+            client: Client::new(),
         }
     }
 
@@ -49,7 +52,7 @@ impl NexusOrchestrator {
             self.load_balancer.increment_request_count(&model.id);
             let start_time = Instant::now();
 
-            let response = self.simulate_inference(&request, model).await;
+            let response = self.run_inference(&request, model).await;
 
             let latency_ms = start_time.elapsed().as_millis() as u64;
             self.metrics.lock().unwrap().record_request(latency_ms);
@@ -63,18 +66,59 @@ impl NexusOrchestrator {
         responses
     }
 
-    async fn simulate_inference(&self, request: &InferenceRequest, model: &ModelConfig) -> InferenceResponse {
-        time::sleep(Duration::from_millis(100)).await;
+    async fn run_inference(&self, request: &InferenceRequest, model: &ModelConfig) -> InferenceResponse {
         let context_info = if !request.context.metadata.is_empty() {
-            format!(" with context metadata: {:?}", request.context.metadata)
+            format!("Metadata: {:?}", request.context.metadata)
         } else {
             String::new()
         };
-        InferenceResponse {
-            id: request.id.clone(),
-            output: format!("Processed by {}: {}{} (session: {})", model.id, request.input, context_info, request.context.session_id),
-            latency_ms: 100,
-            context: request.context.clone(),
+        let prompt = format!(
+            "Session: {}, {}, Input: {}",
+            request.context.session_id, context_info, request.input
+        );
+
+        let payload = serde_json::json!({
+            "model": &model.id,
+            "prompt": prompt,
+            "stream": false,
+            "options": {
+                "temperature": 0.7,
+                "max_tokens": 100
+            }
+        });
+
+        match self.client
+            .post(&model.endpoint)
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => match resp.json::<serde_json::Value>().await {
+                Ok(json) => {
+                    let output = json["response"]
+                        .as_str()
+                        .unwrap_or("Error: No response field")
+                        .to_string();
+                    InferenceResponse {
+                        id: request.id.clone(),
+                        output,
+                        latency_ms: Instant::now().elapsed().as_millis() as u64,
+                        context: request.context.clone(),
+                    }
+                }
+                Err(e) => InferenceResponse {
+                    id: request.id.clone(),
+                    output: format!("Error parsing response: {}", e),
+                    latency_ms: Instant::now().elapsed().as_millis() as u64,
+                    context: request.context.clone(),
+                },
+            },
+            Err(e) => InferenceResponse {
+                id: request.id.clone(),
+                output: format!("Error calling Ollama: {}", e),
+                latency_ms: Instant::now().elapsed().as_millis() as u64,
+                context: request.context.clone(),
+            },
         }
     }
 
