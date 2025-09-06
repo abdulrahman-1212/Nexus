@@ -1,1 +1,52 @@
+# Rust
 /target
+Cargo.lock
+**/*.rs.bk
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Models (can be large)
+models/*.bin
+models/*.safetensors
+models/*.onnx
+
+# Cache
+.cache/
+*.tmp
+
+# Environment
+.env
+.env.local
+
+# Docker
+.dockerignore
+
+# Benchmarks
+benchmark_results/
+*.prof
+
+# Database
+*.db
+*.sqlite
+
+# Certificates
+*.pem
+*.key
+*.crt
+
+# Backup files
+*.bak
+*.orig
