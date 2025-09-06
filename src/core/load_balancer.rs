@@ -19,7 +19,6 @@ impl LoadBalancer {
         Self { models, request_counts }
     }
 
-    // Select model based on A/B testing weights and current load
     pub fn select_model(&self) -> Option<&ModelConfig> {
         let mut rng = rand::thread_rng();
         let total_weight: f64 = self.models.iter().map(|m| m.weight).sum();
@@ -34,7 +33,6 @@ impl LoadBalancer {
                 }
             }
         }
-        // Fallback to least loaded model
         let counts = self.request_counts.lock().unwrap();
         self.models.iter()
             .filter(|model| counts.get(&model.id).unwrap_or(&0) < &model.max_requests_per_second)

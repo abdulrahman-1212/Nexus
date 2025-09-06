@@ -1,10 +1,12 @@
+use serde::Deserialize;
+
 // Model configuration for Nexus
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct ModelConfig {
     pub id: String,
     pub endpoint: String,
     pub max_requests_per_second: u32,
-    pub weight: f64, // For A/B testing
+    pub weight: f64,
 }
 
 impl ModelConfig {

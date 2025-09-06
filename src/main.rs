@@ -1,16 +1,15 @@
+mod api;
 mod config;
-mod load_balancer;
-mod cache;
-mod metrics;
+mod core;
 mod models;
-mod orchestrator;
-mod server;
+mod observability;
 
 use hyper::{Server, service::{make_service_fn, service_fn}};
 use config::ModelConfig;
-use models::InferenceRequest;
-use orchestrator::NexusOrchestrator;
-use server::handle_request;
+use core::{batcher::Batcher, orchestrator::NexusOrchestrator};
+use api::inference::handle_inference;
+use api::metrics::handle_metrics;
+use observability::health::handle_health;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
@@ -24,18 +23,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             id: "model1".to_string(),
             endpoint: "http://localhost:8000".to_string(),
             max_requests_per_second: 10,
-            weight: 0.7, // 70% of requests for A/B testing
+            weight: 0.7,
         },
         ModelConfig {
             id: "model2".to_string(),
             endpoint: "http://localhost:8001".to_string(),
             max_requests_per_second: 10,
-            weight: 0.3, // 30% of requests for A/B testing
+            weight: 0.3,
         },
     ];
 
     // Create orchestrator
     let orchestrator = Arc::new(NexusOrchestrator::new(models));
+    let batcher = Batcher::new();
 
     // Spawn metrics printer
     let metrics_orchestrator = orchestrator.clone();
@@ -48,16 +48,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Create a channel for request batching
-    let (tx, mut rx) = mpsc::channel::<InferenceRequest>(100);
+    let (tx, mut rx) = mpsc::channel(100);
 
     // Spawn request batch processor
     let batch_orchestrator = orchestrator.clone();
     tokio::spawn(async move {
+        let batcher = batcher.clone();
         while let Some(request) = rx.recv().await {
+            let batch = batcher.add_request(request).await;
             let orchestrator = batch_orchestrator.clone();
             tokio::spawn(async move {
-                let response = orchestrator.process_request(request).await;
-                println!("Response: {:?}", response);
+                let responses = orchestrator.process_batch(batch).await;
+                for response in responses {
+                    println!("Response: {:?}", response);
+                }
             });
         }
     });
@@ -68,7 +72,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let orchestrator = orchestrator.clone();
         let tx = tx.clone();
         async move {
-            Ok::<_, hyper::Error>(service_fn(move |req| handle_request(req, orchestrator.clone(), tx.clone())))
+            Ok::<_, hyper::Error>(service_fn(move |req| {
+                let orchestrator = orchestrator.clone();
+                let tx = tx.clone();
+                async move {
+                    match (req.method(), req.uri().path()) {
+                        (&hyper::Method::POST, "/infer") => handle_inference(req, orchestrator, tx).await,
+                        (&hyper::Method::GET, "/metrics") => handle_metrics(req, orchestrator).await,
+                        (&hyper::Method::GET, "/health") => handle_health(req, orchestrator).await,
+                        _ => Ok(hyper::Response::builder()
+                            .status(hyper::StatusCode::NOT_FOUND)
+                            .body(hyper::Body::from("Not found"))
+                            .unwrap()),
+                    }
+                }
+            }))
         }
     });
 

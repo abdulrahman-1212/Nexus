@@ -1,0 +1,7 @@
+[server]
+port = 3000
+max_connections = 100
+
+[batcher]
+batch_size = 10
+batch_timeout_ms = 50
