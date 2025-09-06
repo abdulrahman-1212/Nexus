@@ -287,7 +287,7 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 
 ## 📬 Contact
 
-For questions or feedback, open an issue on [GitHub](https://github.com/your-username/nexus) or contact [your-username](https://github.com/your-username).
+For questions or feedback, open an issue on [GitHub](https://github.com/abdulrahman-1212/nexus) or contact [abdulrahman-1212](https://github.com/abdulrahman-1212).
 
 ---
 
